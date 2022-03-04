@@ -1,6 +1,11 @@
 import Foundation
 
-class LWWSet<T>: Hashable, Equatable where T: Hashable {
+class LWWSet<T>: Hashable, Equatable, Sequence where T: Hashable {
+
+    func makeIterator() -> some IteratorProtocol {
+        creations.filter(contains)
+            .makeIterator()
+    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(creations)
@@ -9,7 +14,7 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
 
     static func == (lhs: LWWSet<T>, rhs: LWWSet<T>) -> Bool {
         lhs.creations == rhs.creations &&
-            lhs.tombstones == rhs.tombstones
+        lhs.tombstones == rhs.tombstones
     }
 
     private var creations: [T: TimeInterval] = [:]
@@ -22,14 +27,8 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
     }
 
     // Returns the state of the set
-    func status() -> Set<T> {
-        var retVal: Set<T> = []
-        for key in creations.keys {
-            if contains(key) {
-                retVal.insert(key)
-            }
-        }
-        return retVal
+    func snapshot(at timestamp: TimeInterval = Date().timeIntervalSinceReferenceDate) -> Set<T> {
+        Set(creations.keys.filter { contains($0, at: timestamp) })
     }
 
     private func wasRemovedAfterAddition(_ atom: T,
@@ -51,11 +50,11 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
     // This method always update the creations, IF there was no removal after the addition
     @discardableResult
     func add(_ value: T, timeinterval: TimeInterval) -> T? {
-
         // Updates the previous add date interval, if present
-        if let previousTimeInterval = creations[value],
-           previousTimeInterval < timeinterval {
-            creations[value] = timeinterval
+        if let previousTimeInterval = creations[value] {
+            if previousTimeInterval < timeinterval {
+                creations[value] = timeinterval
+            }
         } else {
             creations[value] = timeinterval
         }
@@ -64,7 +63,6 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
             return nil
         }
 
-        creations[value] = timeinterval
         return value
     }
 
@@ -72,9 +70,10 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
     @discardableResult
     func remove(_ value: T, timeinterval: TimeInterval) -> T? {
         // If it has an older value, update it
-        if let previousTimeInterval = tombstones[value],
-           previousTimeInterval < timeinterval {
-            tombstones[value] = timeinterval
+        if let previousTimeInterval = tombstones[value] {
+            if previousTimeInterval < timeinterval {
+                tombstones[value] = timeinterval
+            }
         } else {
             tombstones[value] = timeinterval
         }
@@ -83,6 +82,29 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
             return nil
         }
         return value
+    }
+
+    func contains(_ value: T, at timestamp: TimeInterval) -> Bool {
+        // value is in created set, but not in tombstones set
+        if creations[value] != nil && tombstones[value] == nil {
+            return true
+        }
+
+        if let tombTimeInterval = tombstones[value],
+           let creationTimeInterval = creations[value] {
+
+            // The value is in both creations and tombstones
+            // To be present at timestamp, it means ignoring everything that is above timestamp
+            // and only focus on the max values of
+            if creationTimeInterval <= timestamp,
+               tombTimeInterval <= timestamp {
+                return tombTimeInterval < creationTimeInterval
+            } else {
+                return tombTimeInterval < timestamp && creationTimeInterval > timestamp
+            }
+        }
+
+        return false
     }
 
     // Lookups O(1)
@@ -95,7 +117,7 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
         // Value is in tombstones, but was successively added
         if let tombTimeInterval = tombstones[value],
            let creationTimeInterval = creations[value],
-            tombTimeInterval < creationTimeInterval {
+           tombTimeInterval < creationTimeInterval {
             return true
         }
 
@@ -107,18 +129,25 @@ class LWWSet<T>: Hashable, Equatable where T: Hashable {
     /// Merges another LWWSet by uniquing the keys and respecting the most recent change
     /// - Parameter other: The set to merge
     func merge(_ other: LWWSet<T>) {
-        self.creations.merge(other.creations, uniquingKeysWith: max)
-        self.tombstones.merge(other.tombstones, uniquingKeysWith: max)
+        self.creations.merge(other.creations, uniquingKeysWith: Swift.max)
+        self.tombstones.merge(other.tombstones, uniquingKeysWith: Swift.max)
     }
 
     /// Returns a new LWWSet, resulting merge of creations/tombstones of `other`
     /// - Parameter other: The set to merge
     func merging(_ other: LWWSet<T>) -> LWWSet<T> {
         let newCreations = self.creations
-            .merging(other.creations, uniquingKeysWith: max)
+            .merging(other.creations, uniquingKeysWith: Swift.max)
         let newTombstones = self.tombstones
-            .merging(other.tombstones, uniquingKeysWith: max)
+            .merging(other.tombstones, uniquingKeysWith: Swift.max)
 
         return LWWSet<T>(newCreations, newTombstones)
+    }
+}
+
+
+extension LWWSet: CustomDebugStringConvertible {
+    var debugDescription: String {
+        return snapshot().debugDescription
     }
 }

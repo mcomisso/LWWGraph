@@ -20,13 +20,13 @@ final class LWWGraphTests: XCTestCase {
 
         // When
         // Ideal timeline
-//        graph.addVertex(b, timestamp: 1)
-//        graph.addVertex(a, timestamp: 2)
-//        graph.addEdge(from: a, to: b, timestamp: 3)
-//        graph.addEdge(from: b, to: c, timestamp: 4)
-//        graph.removeVertex(a, timestamp: 5)
-//        graph.addVertex(a, timestamp: 6)
-//        let g1connectedVertices = graph.connectedVerticesBFS(from: b)
+        graph.addVertex(b, timestamp: 1)
+        graph.addVertex(a, timestamp: 2)
+        graph.addEdge(from: a, to: b, timestamp: 3)
+        graph.addEdge(from: b, to: c, timestamp: 4)
+        graph.removeVertex(a, timestamp: 5)
+        graph.addVertex(a, timestamp: 6)
+        let g1connectedVertices = graph.connectedVerticesBFS(from: b)
 
         // Altered timeline
         let graph2 = G()
@@ -48,9 +48,9 @@ final class LWWGraphTests: XCTestCase {
         graph3.removeVertex(a, timestamp: 5)
         let g3connectedVertices = graph3.connectedVerticesBFS(from: b)
 
-//        XCTAssertEqual(g1connectedVertices[b], 0)
-//        XCTAssertEqual(g1connectedVertices[c], 1)
-//        XCTAssertEqual(g1connectedVertices.count, 2)
+        XCTAssertEqual(g1connectedVertices[b], 0)
+        XCTAssertEqual(g1connectedVertices[c], 1)
+        XCTAssertEqual(g1connectedVertices.count, 2)
 
         XCTAssertEqual(g2connectedVertices[b], 0)
         XCTAssertEqual(g2connectedVertices[c], 1)
@@ -374,15 +374,15 @@ final class LWWGraphTests: XCTestCase {
     // MARK: - Graph merge
 
     func testMergeGraphs() {
-        let source = G()
-        let remote = G()
-
         let a = G.Vertex("A")
         let b = G.Vertex("B")
         let c = G.Vertex("C")
         let d = G.Vertex("D")
         let e = G.Vertex("E")
         let f = G.Vertex("F")
+
+        let source = G()
+        let remote = G()
 
         source.addVertex(a)
         source.addVertex(b)
@@ -439,8 +439,8 @@ final class LWWGraphTests: XCTestCase {
         let graph = G()
         let a = G.Vertex("A")
 
-        graph.addVertex(a, timestamp: now())
-        graph.removeVertex(a, timestamp: now())
+        graph.addVertex(a, timestamp: 1)
+        graph.removeVertex(a, timestamp: 2)
 
         XCTAssertFalse(graph.lookup(a))
     }

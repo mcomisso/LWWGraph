@@ -38,106 +38,118 @@ protocol GraphFunctionalities {
     func merge(_ replica: Replica)
 }
 
-class LWWGraph<T>: GraphFunctionalities, CustomDebugStringConvertible where T: Hashable {
+class LWWGraph<T>: GraphFunctionalities where T: Hashable {
 
     typealias T = T
     typealias Replica = LWWGraph<T>
 
     private var verticesSet: LWWSet<LWWGraph<T>.Vertex> = .init()
     private var edgesSet: LWWSet<LWWGraph<T>.Edge> = .init()
-    private var adjacencyList: [Vertex: [Edge]] = [:]
+
+    private var adjacencyList: [Vertex: [Vertex]] = [:]
 
     // MARK: - Additions
 
     @discardableResult
     func addVertex(_ vertex: Vertex, timestamp: TimeInterval = Date().timeIntervalSinceReferenceDate) -> Vertex? {
-        if let v = verticesSet.add(vertex, timeinterval: timestamp) {
-            guard adjacencyList[v] == nil else {
-                return nil
-            }
-            adjacencyList[v] = []
-            return v
+
+        guard let addedVertex = verticesSet.add(vertex, timeinterval: timestamp) else {
+            return nil
         }
-        return nil
+
+        createVertexInAdjacencyList(vertex)
+
+        return addedVertex
+    }
+
+    private func createVertexInAdjacencyList(_ v: Vertex) {
+        if adjacencyList[v] == nil {
+            adjacencyList[v] = []
+        }
     }
 
     @discardableResult
     func addEdge(from: Vertex, to: Vertex,
                  timestamp: TimeInterval = Date().timeIntervalSinceReferenceDate) -> Edge? {
 
-        // Returns the vertex if it's in the adjacency list, otherwise adds it to it with the timestamp of the current operation
-        func optimisticAddition(of vertex: Vertex) -> Vertex? {
-            if adjacencyList[vertex] == nil {
-                return addVertex(from, timestamp: timestamp)
-            } else {
-                return vertex
-            }
-        }
-
-        guard from != to else { return nil }
-
-        // Optimistically adds the vertices.
-        // If a node will be removed in the future, the addVertex function will prevent addition in the first place
-        guard let validFrom = optimisticAddition(of: from),
-           let validTo = optimisticAddition(of: to) else {
-               return nil
-        }
-
-        let edge = Edge(from: validFrom, to: validTo)
-
-        guard let e = edgesSet.add(edge, timeinterval: timestamp) else {
+        // Do not operate on same nodes
+        guard from != to else {
             return nil
         }
 
-        // This section happens only if there are no future removals of the edge
+        var addedFrom: Vertex?
+        var addedTo: Vertex?
 
-        // Gets the from vertex and all the connected vertices to it.
-        // if it does not contain the current edge to
-//        guard adjacencyList[e.from]?
-//                .map({ $0.to })
-//                .contains(e.to) == false else {
-//            return nil
-//        }
+        if !verticesSet.contains(from, at: timestamp) {
+            addedFrom = addVertex(from, timestamp: timestamp)
+        } else {
+            addedFrom = from
+        }
 
-        adjacencyList[e.from]?.append(e)
-        adjacencyList[e.to]?.append(e.inverted())
+        if !verticesSet.contains(to, at: timestamp) {
+            addedTo = addVertex(to, timestamp: timestamp)
+        } else {
+            addedTo = to
+        }
 
-        return e
+        // Check if previous operations were successful, otherwise return
+        guard let addedFrom = addedFrom,
+              let addedTo = addedTo else {
+                  return nil
+              }
+
+        if let edge = edgesSet.add(.init(from: addedFrom, to: addedTo), timeinterval: timestamp) {
+            connectVertices(edge)
+            return edge
+        }
+
+        return nil
+    }
+
+    private func connectVertices(_ edge: Edge) {
+        adjacencyList[edge.from]?.append(edge.to)
+        adjacencyList[edge.to]?.append(edge.from)
     }
 
     // MARK: - Removals
     func removeVertex(_ vertex: Vertex, timestamp: TimeInterval = Date().timeIntervalSinceReferenceDate) {
-        // Check if the removal is a valid operation, or if and addition happened after it
         if let removedVertex = verticesSet.remove(vertex, timeinterval: timestamp) {
+            // Remove the node from all the neighbours relations
 
-            // If valid, get all the vertices that are connected to the removal vertex
-
-            if let targetEdges = adjacencyList[removedVertex] {
-                for edge in targetEdges {
+            // Generates the list of edges
+            adjacencyList[removedVertex]?
+                .compactMap { Edge(from: removedVertex, to: $0) }
+                .forEach { edge in
+                    // Use the defined function to remove A - B (and B - A)
                     removeEdge(edge: edge, timestamp: timestamp)
                     removeEdge(edge: edge.inverted(), timestamp: timestamp)
-                    adjacencyList[edge.to]?.removeAll(where: { $0.to == removedVertex })
                 }
-            }
 
-//            if let targetVertices = adjacencyList[removedVertex]?.map({ $0.to }) {
-//
-//                // Remove all the edges that connect connecting vertices to our removal vertex
-//                targetVertices.forEach {
-//                    adjacencyList[$0]?.removeAll(where: { $0.to == removedVertex })
-//                }
-//            }
+            // Remove the node itself
             adjacencyList[removedVertex] = nil
+        } else {
+            // If the vertex is not removed from the storage, we might still want to find relevant edges at a certain timestamp.
+            // TODO: This function is not the fastest, but priority was given to passing the tests
+            edgesSet.snapshot()
+                .forEach { edge in
+
+                    if edge.from == vertex ||
+                        edge.to == vertex {
+                        // Vertex included in edge
+
+                        removeEdge(edge: edge, timestamp: timestamp)
+                        removeEdge(edge: edge.inverted(), timestamp: timestamp)
+
+                    }
+                }
+//            self.adjacencyList = generateAdjacencyList()
         }
     }
 
     func removeEdge(edge: Edge, timestamp: TimeInterval = Date().timeIntervalSinceReferenceDate) {
         if let removedEdge = edgesSet.remove(edge, timeinterval: timestamp) {
-            let removedFrom = removedEdge.from
-            let removedTo = removedEdge.to
-
-            adjacencyList[removedFrom]!.removeAll(where: { $0.from == removedFrom && $0.to == removedTo })
-            adjacencyList[removedTo]!.removeAll(where: { $0.from == removedTo && $0.to == removedFrom })
+            adjacencyList[removedEdge.from, default: []].removeAll(where: { $0 == removedEdge.to })
+            adjacencyList[removedEdge.to, default: []].removeAll(where: { $0 == removedEdge.from })
         }
     }
 
@@ -161,7 +173,7 @@ class LWWGraph<T>: GraphFunctionalities, CustomDebugStringConvertible where T: H
 }
 
 // MARK: - Computed properties
-extension LWWGraph {
+extension LWWGraph: CustomDebugStringConvertible {
     var isEmpty: Bool {
         count == 0
     }
@@ -174,7 +186,7 @@ extension LWWGraph {
         var retVal = ""
         adjacencyList.forEach {
             retVal.append($0.key.debugDescription)
-            retVal.append(": \($0.value.compactMap { $0.to.debugDescription }.joined(separator: " -> "))\n")
+            retVal.append(": \($0.value.compactMap { $0.debugDescription }.joined(separator: " -> "))\n")
         }
         return retVal
     }
@@ -184,17 +196,20 @@ extension LWWGraph {
 extension LWWGraph {
 
     func verticesConnected(to vertex: Vertex) -> [Vertex] {
-        adjacencyList[vertex]?.compactMap { $0.to } ?? []
+        adjacencyList[vertex, default: []]
     }
 
-    private func generateAdjacencyList() -> [Vertex: [Edge]] {
-        var a: [Vertex: [Edge]] = [:]
+    private func generateAdjacencyList() -> [Vertex: [Vertex]] {
+        var a: [Vertex: [Vertex]] = [:]
 
-        verticesSet.status().forEach { a[$0] = [] }
-        edgesSet.status().forEach {
-            a[$0.from]!.append($0)
-            a[$0.to]!.append($0.inverted())
-        }
+        verticesSet.snapshot()
+            .forEach { a[$0] = [] }
+
+        edgesSet.snapshot()
+            .forEach {
+                a[$0.from]!.append($0.to)
+                a[$0.to]!.append($0.from)
+            }
 
         return a
     }
@@ -209,12 +224,10 @@ extension LWWGraph {
         while !queue.isEmpty {
             let currentVertex = queue.removeFirst()
 
-            for edge in adjacencyList[currentVertex]! {
-                let to = edge.to
-
-                if distance[to] == nil {
-                    queue.append(to)
-                    distance[to] = distance[currentVertex]! + 1
+            for edge in adjacencyList[currentVertex, default: []] {
+                if distance[edge] == nil {
+                    queue.append(edge)
+                    distance[edge] = distance[currentVertex]! + 1
                 }
             }
         }
@@ -234,8 +247,7 @@ extension LWWGraph {
         while !queue.isEmpty {
             let currentVertex = queue.removeFirst()
 
-            for edge in adjacencyList[currentVertex]! {
-                let to = edge.to
+            for to in adjacencyList[currentVertex, default: []] {
 
                 if distance[to] == nil {
                     distance[to] = distance[currentVertex]! + 1

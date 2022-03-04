@@ -14,7 +14,7 @@ final class LWWSetTests: XCTestCase {
         set.remove("A", timeinterval: 3)
         set.remove("B", timeinterval: 4)
 
-        XCTAssertEqual(set.status(), [])
+        XCTAssertEqual(set.snapshot(), [])
 
 
         set.remove("A", timeinterval: 3)
@@ -22,7 +22,7 @@ final class LWWSetTests: XCTestCase {
         set.remove("B", timeinterval: 4)
         set.add("B", timeinterval: 2)
 
-        XCTAssertEqual(set.status(), [])
+        XCTAssertEqual(set.snapshot(), [])
     }
 
     func testAdditions() {
@@ -31,7 +31,7 @@ final class LWWSetTests: XCTestCase {
         set.add("A", timeinterval: now())
         set.add("B", timeinterval: now())
 
-        XCTAssertEqual(set.status().sorted(), ["A", "B"])
+        XCTAssertEqual(set.snapshot().sorted(), ["A", "B"])
     }
 
     func testContainsInAdditionOnly() {
@@ -71,21 +71,21 @@ final class LWWSetTests: XCTestCase {
         set.remove("A", timeinterval: now())
         set.remove("B", timeinterval: now())
 
-        XCTAssertEqual(set.status().sorted(), [])
+        XCTAssertEqual(set.snapshot().sorted(), [])
 
         // 3
         set.add("A", timeinterval: now())
-        XCTAssertEqual(set.status().sorted(), ["A"])
+        XCTAssertEqual(set.snapshot().sorted(), ["A"])
 
         // 4
         // Old insert
         set.add("C", timeinterval: now().minus(4.hours))
-        XCTAssertEqual(set.status().sorted(), ["A", "C"])
+        XCTAssertEqual(set.snapshot().sorted(), ["A", "C"])
 
         // 5
         // Old deletion, overwritten by 1, 3
         set.remove("A", timeinterval: now().minus(4.days))
-        XCTAssertEqual(set.status().sorted(), ["A", "C"])
+        XCTAssertEqual(set.snapshot().sorted(), ["A", "C"])
     }
 
     func testRemovalAfterAddition() {
@@ -93,7 +93,7 @@ final class LWWSetTests: XCTestCase {
         set.add("A", timeinterval: now())
         set.remove("A", timeinterval: now())
 
-        XCTAssertFalse(set.status().contains("A"))
+        XCTAssertFalse(set.snapshot().contains("A"))
     }
 
     func testMerge() {
@@ -112,7 +112,7 @@ final class LWWSetTests: XCTestCase {
 
         s1.merge(s2)
 
-        XCTAssertEqual(s1.status().sorted(), ["C"])
+        XCTAssertEqual(s1.snapshot().sorted(), ["C"])
     }
 
     func testMerging() {
@@ -130,8 +130,8 @@ final class LWWSetTests: XCTestCase {
 
         let s1and2 = s1.merging(s2)
 
-        XCTAssertEqual(s1and2.status().sorted(), ["A"])
-        XCTAssertEqual(s1.status().sorted(), [])
-        XCTAssertEqual(s2.status().sorted(), ["A", "C"])
+        XCTAssertEqual(s1and2.snapshot().sorted(), ["A"])
+        XCTAssertEqual(s1.snapshot().sorted(), [])
+        XCTAssertEqual(s2.snapshot().sorted(), ["A", "C"])
     }
 }
